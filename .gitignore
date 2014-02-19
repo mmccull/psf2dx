@@ -15,6 +15,9 @@
 *.a
 *.lib
 
+#others
+*.dx
+
 # Executables
 *.exe
 *.out
