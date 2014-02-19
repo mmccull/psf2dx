@@ -122,7 +122,7 @@ void print_dx_file(FILE *dxFile, double ***grid, int *gridDim, double *origin, d
 void compute_esp_grid(double **coord, int nAtoms, double *charges, double cut, double delta, double ***grid, int *gridDim, double *origin) {
 
 	double ke = 196.748; //kT*Angstroms/e^2 
-	double innerCut = 2.0;
+	double innerCut = 1.0;
 	int atom;
 	int i, j, k;
 	int x, y, z;
@@ -167,7 +167,7 @@ void compute_esp_grid(double **coord, int nAtoms, double *charges, double cut, d
 									dist += temp*temp;
 								}
 								dist = sqrt(dist);
-								if (dist>innerCut) {
+								if (dist>innerCut && dist < cut) {
 									grid[currentGrid[0]][currentGrid[1]][currentGrid[2]] += ke*charges[atom]/dist;
 								} else {
 //									printf("grid[%3d][%3d][%3d] = %10.5f\n",currentGrid[0],currentGrid[1],currentGrid[2],ke*charges[atom]/dist);
