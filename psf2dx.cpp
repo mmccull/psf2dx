@@ -131,6 +131,7 @@ void compute_esp_grid(double **coord, int nAtoms, double *charges, double cut, d
 	int currentGrid[3];
 	double dist;
 	double temp;
+	int gridFlag[gridDim[0]][gridDim[1]][gridDim[2]];
 
 	cutGrid = int(cut/delta);
 
@@ -139,6 +140,7 @@ void compute_esp_grid(double **coord, int nAtoms, double *charges, double cut, d
 		for(y=0;y<gridDim[0];y++) {
 			for (z=0;z<gridDim[0];z++) {
 				grid[x][y][z]=0;
+				gridFlag[x][y][z]=0;
 			}
 		}
 	}
@@ -167,8 +169,10 @@ void compute_esp_grid(double **coord, int nAtoms, double *charges, double cut, d
 									dist += temp*temp;
 								}
 								dist = sqrt(dist);
-								if (dist>innerCut && dist < cut) {
+								if (dist>innerCut && dist < cut && gridFlag[currentGrid[0]][currentGrid[1]][currentGrid[2]]==0) {
 									grid[currentGrid[0]][currentGrid[1]][currentGrid[2]] += ke*charges[atom]/dist;
+								} else if (dist<=innerCut) {
+									gridFlag[currentGrid[0]][currentGrid[1]][currentGrid[2]]=1;
 								} else {
 //									printf("grid[%3d][%3d][%3d] = %10.5f\n",currentGrid[0],currentGrid[1],currentGrid[2],ke*charges[atom]/dist);
 								}
