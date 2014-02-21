@@ -30,6 +30,12 @@ int main (int argc, char* argv[]) {
 	int nAtoms;
 	char buffer[1024];
 	FILE *temp1;
+	// Clock variables
+	clock_t start_t, end_t;
+	double total_t;
+	
+	// initialize clock
+	start_t = clock();
 
 	// read command line arguments
 	parse_command_line(argc, argv, &psfFile, &pdbFile, &dxFile, &cut, &delta);
@@ -70,6 +76,12 @@ int main (int argc, char* argv[]) {
 	// print dx file
 	print_dx_file(dxFile,grid,gridDim,origin,delta);
 	fclose(dxFile);	
+
+	// get end time and print time taken
+	end_t = clock();
+	total_t = (double) (end_t-start_t) / CLOCKS_PER_SEC;
+	printf("Total time taken:%f\n",total_t);
+
 
 }
 
