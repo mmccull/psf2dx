@@ -3,16 +3,17 @@
 #include <math.h>
 #include <iostream>
 #include <time.h>
+#include <omp.h>
 #include "psflib.h"
 #include "pdblib.h"
-#include "stringlib.h"
 
 using namespace std;
 
-int parse_command_line (int, char **, FILE **, FILE **, FILE **, double *, double *);
-void compute_grid_dim(double **, int, double, double, int *, double *);
-void compute_esp_grid(double **, int, double *, double , double , double ***, int *, double *);
+int parse_command_line (int, char **, FILE **, FILE **, FILE **, double *, double *, int*);
+void compute_grid_dim(double **, int, double, double, int *, double *, int);
+void compute_esp_grid(double **, int, double *, double , double , double ***, int *, double *, int);
 void print_dx_file(FILE *, double ***, int *, double *, double);
+//extern void omp_set_num_threads(int);
 
 int main (int argc, char* argv[]) {
 
@@ -33,12 +34,15 @@ int main (int argc, char* argv[]) {
 	// Clock variables
 	clock_t start_t, end_t;
 	double total_t;
+	// OpenMP variables
+	int numProcs;
+	int nThreads=1;
 	
 	// initialize clock
 	start_t = clock();
 
 	// read command line arguments
-	parse_command_line(argc, argv, &psfFile, &pdbFile, &dxFile, &cut, &delta);
+	parse_command_line(argc, argv, &psfFile, &pdbFile, &dxFile, &cut, &delta,&nThreads);
 
 	// read psf file header to get number of atoms
 	printf("Reading psf file\n");
@@ -61,7 +65,7 @@ int main (int argc, char* argv[]) {
 	fclose(pdbFile);
 
 	// compute ESP on grid - grid depends on coordinates, delta and cutoff
-	compute_grid_dim(coord,nAtoms,cut,delta,gridDim,origin);
+	compute_grid_dim(coord,nAtoms,cut,delta,gridDim,origin,nThreads);
 	printf("Size of grid: %6d, %6d, %6d\n",gridDim[0],gridDim[1],gridDim[2]);
 	printf("Grid origin: %6.3f%6.3f%6.3f\n",origin[0],origin[1],origin[2]);
 	grid = new double** [gridDim[0]];
@@ -71,7 +75,7 @@ int main (int argc, char* argv[]) {
 			grid[i][j] = new double [gridDim[2]];
 		}
 	}
-	compute_esp_grid(coord,nAtoms,charges,cut,delta,grid,gridDim,origin);
+	compute_esp_grid(coord,nAtoms,charges,cut,delta,grid,gridDim,origin,nThreads);
 	
 	// print dx file
 	print_dx_file(dxFile,grid,gridDim,origin,delta);
@@ -131,7 +135,7 @@ void print_dx_file(FILE *dxFile, double ***grid, int *gridDim, double *origin, d
 }
 
 // compute the esp on a grid
-void compute_esp_grid(double **coord, int nAtoms, double *charges, double cut, double delta, double ***grid, int *gridDim, double *origin) {
+void compute_esp_grid(double **coord, int nAtoms, double *charges, double cut, double delta, double ***grid, int *gridDim, double *origin, int nThreads) {
 
 	double ke = 196.748; //kT*Angstroms/e^2 
 	double innerCut = 1.0;
@@ -144,6 +148,8 @@ void compute_esp_grid(double **coord, int nAtoms, double *charges, double cut, d
 	double dist;
 	double temp;
 	int gridFlag[gridDim[0]][gridDim[1]][gridDim[2]];
+	// openMP variables
+	int myID;
 
 	cutGrid = int(cut/delta);
 
@@ -158,9 +164,12 @@ void compute_esp_grid(double **coord, int nAtoms, double *charges, double cut, d
 	}
 
 	printf("Starting atom loop...\n");
-
+	#pragma omp parallel private (x,y,z,currentGrid,dist,temp,atomGrid,atom,myID,j)
+	{
+	myID = omp_get_thread_num();
+//	printf("Thread number:%d\n",myID);
 	// loop through all atoms and compute their contributions to surrounding grid points
-	for (atom=0;atom<nAtoms;atom++) {
+	for (atom=myID;atom<nAtoms;atom+=nThreads) {
 		for (j=0;j<3;j++) {
 			atomGrid[j] = int((coord[atom][j]-origin[j])/delta);
 		}
@@ -181,12 +190,15 @@ void compute_esp_grid(double **coord, int nAtoms, double *charges, double cut, d
 									dist += temp*temp;
 								}
 								dist = sqrt(dist);
+								# pragma omp critical
+								{
 								if (dist>innerCut && dist < cut && gridFlag[currentGrid[0]][currentGrid[1]][currentGrid[2]]==0) {
 									grid[currentGrid[0]][currentGrid[1]][currentGrid[2]] += ke*charges[atom]/dist;
 								} else if (dist<=innerCut) {
 									gridFlag[currentGrid[0]][currentGrid[1]][currentGrid[2]]=1;
 								} else {
 //									printf("grid[%3d][%3d][%3d] = %10.5f\n",currentGrid[0],currentGrid[1],currentGrid[2],ke*charges[atom]/dist);
+								}
 								}
 							}
 						}
@@ -197,26 +209,40 @@ void compute_esp_grid(double **coord, int nAtoms, double *charges, double cut, d
 	
 	} // end atom loop
 
+	}	
+
 } // end subroutine compute_esp_grid
 
 
 // compute the dimensions of the grid based on atomic coordinates, 
-void compute_grid_dim(double **coord, int nAtoms, double cut, double delta, int *gridDim, double *origin) {
+void compute_grid_dim(double **coord, int nAtoms, double cut, double delta, int *gridDim, double *origin, int nThreads) {
 
 	int atom;
 	int i, j;
 	double max[3];
 	double min[3];
+	int myID;
 
-	for(atom=0;atom<nAtoms;atom++) {
+	for(j=0;j<3;j++) {
+		 max[j] = coord[0][j];
+		 min[j] = coord[0][j];
+	}
+
+	# pragma omp parallel private (atom,myID,j)
+	{
+	myID = omp_get_thread_num();
+	for(atom=myID;atom<nAtoms;atom+=nThreads) {
 		for (j=0;j<3;j++) {
-			if (atom==0 || coord[atom][j]>max[j]) {
-				max[j] = coord[atom][j];
-			}	
-			if (atom==0 || coord[atom][j]<min[j]) {
-				min[j] = coord[atom][j];
-			}	
+			# pragma omp critical
+			{
+				if (coord[atom][j]>max[j]) {
+					max[j] = coord[atom][j];
+				} else if (coord[atom][j]<min[j]) {
+					min[j] = coord[atom][j];
+				}	
+			}
 		}
+	}
 	}
 	// compute grid dimensions
 	for (j=0;j<3;j++) {
@@ -227,7 +253,7 @@ void compute_grid_dim(double **coord, int nAtoms, double cut, double delta, int 
 }
 
 
-int parse_command_line (int argc, char* argv[], FILE **psfFile, FILE **pdbFile, FILE **dxFile, double *cut, double *delta) {
+int parse_command_line (int argc, char* argv[], FILE **psfFile, FILE **pdbFile, FILE **dxFile, double *cut, double *delta, int *nThreads) {
 
 	char psfFileName[1024]={'0'};
 	char pdbFileName[1024]={'0'};
@@ -262,6 +288,9 @@ int parse_command_line (int argc, char* argv[], FILE **psfFile, FILE **pdbFile, 
 		// if delta read in delta (grid spacing) value
 		} else if (strcmp(argv[i], "-delta") ==0) {
 			*delta = atof(argv[++i]);
+		// openMP number of threads
+		} else if (strcmp(argv[i], "-np") ==0) {
+			*nThreads = atoi(argv[++i]);
 		} else {
 			printf("Unrecognized command line option: %s\n",argv[i]);
 			printf("Usage: psf2dx -psf [input psf file name] -pdb [input pdb file name] -dx [output dx file name] -cut [optional cutoff value] -delta [optional grid spacing value]\n");
@@ -287,9 +316,10 @@ int parse_command_line (int argc, char* argv[], FILE **psfFile, FILE **pdbFile, 
 	} else {
 	       printf("using dx file: %s\n",dxFileName);
 	}
-       printf("Cutoff value: %f\n",*cut);	
-       printf("Grid spacing: %f\n",*delta);
-		
+       	printf("Cutoff value: %f\n",*cut);	
+       	printf("Grid spacing: %f\n",*delta);
+	printf("Number of threads: %d\n",*nThreads);
+	omp_set_num_threads(*nThreads);	
 
 }
 

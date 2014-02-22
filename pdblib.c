@@ -4,7 +4,6 @@
  * 
  */
 #include "pdblib.h"
-#include "stringlib.h"
 
 
 void read_pdb(FILE *pdbFile, double **coord, int nAtoms)
@@ -22,7 +21,7 @@ void read_pdb(FILE *pdbFile, double **coord, int nAtoms)
 
 	while (fgets(buffer,1024,pdbFile)!=NULL) {
 
-		if (strncmp(string_firstword(buffer),"ATOM",4)==0) {
+		if (strncmp(buffer,"ATOM",4)==0) {
       				
 			strncpy(posChar,buffer+30,8);
 			posChar[8]='\0';
